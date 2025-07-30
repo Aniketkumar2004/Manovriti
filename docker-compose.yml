@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # FastAPI backend service
+  api:
+    build: .
+    container_name: toxic-comment-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=info
+    volumes:
+      - ./results:/app/results
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - toxic-comment-network
+
+  # Streamlit web interface service
+  web:
+    build: .
+    container_name: toxic-comment-web
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONPATH=/app
+      - API_URL=http://api:8000
+    volumes:
+      - ./results:/app/results
+      - ./logs:/app/logs
+    command: ["streamlit", "run", "src/web_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - toxic-comment-network
+
+  # Training service (run once to train models)
+  trainer:
+    build: .
+    container_name: toxic-comment-trainer
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - ./results:/app/results
+      - ./logs:/app/logs
+    command: ["python", "src/train_evaluate.py", "--output", "results"]
+    profiles:
+      - training
+    networks:
+      - toxic-comment-network
+
+  # Example runner service
+  examples:
+    build: .
+    container_name: toxic-comment-examples
+    environment:
+      - PYTHONPATH=/app
+      - API_URL=http://api:8000
+    volumes:
+      - ./results:/app/results
+      - ./logs:/app/logs
+    command: ["python", "examples/basic_usage.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+    profiles:
+      - examples
+    networks:
+      - toxic-comment-network
+
+networks:
+  toxic-comment-network:
+    driver: bridge
+
+volumes:
+  results:
+    driver: local
+  logs:
+    driver: local
